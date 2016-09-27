@@ -1,0 +1,737 @@
+//g++ -o Micro  Micronoid.cpp -lSDLmain -lSDL -lGL -lSDL_image -lSDL_mixer -I/usr/local/include -L/usr/local/lib -lwiringPi
+//sudo ./Micro
+ 
+
+
+
+
+// Librerias
+#include "SDL/SDL.h"
+#include "SDL2/SDL.h"
+#include "SDL/SDL_opengl.h"
+#include "SDL/SDL_mixer.h"
+#include "SDL/SDL_image.h"
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <wiringPi.h> 
+
+const int butPin = 17;
+
+using namespace std;
+
+GLuint loadTexture( const std::string &fileName )
+{
+  SDL_Surface *image = IMG_Load( fileName.c_str() );
+ 
+  SDL_DisplayFormatAlpha(image);
+ 
+  unsigned object(0);
+ 
+  glGenTextures(1, &object);
+ 
+  glBindTexture(GL_TEXTURE_2D, object);
+ 
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+ 
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image->w, image->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image->pixels);
+ 
+  //Free surface
+  SDL_FreeSurface(image);
+ 
+  return object;
+}
+
+bool checkCollision(float Ax, float Ay, float Aw, float Ah, float Bx, float By, float Bw, float Bh) //Revisar colisiones
+{
+  if ( Ay+Ah < By ) return false; //if A is more to the left than B
+  else if ( Ay > By+Bh ) return false; //if A is more to the right than B
+  else if ( Ax+Aw < Bx ) return false; //if A is higher than B
+  else if ( Ax > Bx+Bw ) return false; //if A is lower than B
+  return true; //There is a collision because none of above returned false
+}
+ 
+struct Brick //Brick structures which holds 4 elements
+{
+  //Elements are used for x and y position of the brick and its width and height
+  float x;
+  float y;
+  float width;
+  float height;
+  bool alive; 
+};
+
+struct Vidas  
+{
+   
+  float x;
+  float y;
+  float width;
+  float height;
+  bool alive;  
+};
+
+struct Piso  
+{
+   
+  float x;
+  float y;
+  float width;
+  float height;
+  bool alive;  
+};
+
+struct Techo / 
+{
+   
+  float x;
+  float y;
+  float width;
+  float height;
+  bool alive; 
+};
+
+//Inicio del programa
+int main( int argc, char* args[] )
+{
+
+  bool ingreso = true;
+  string nombre;
+string enter;
+
+  while (ingreso)  {
+ 	  
+  	glDisable(GL_DEPTH_TEST);
+  	std::cout << "\033[2J\033[1;1H" << std::endl;
+  	std::cout << "Bienvenido a Micronoid" << std::endl;
+  	std::cout << "EL-4313-Lab.Estructura de Microprocesadores  ---  2S-2016" << std::endl;
+	std::cout << "Ingrese nombre: " << std::endl;
+	std::cin >> nombre;
+	ingreso = false;
+  }
+
+ 
+  SDL_Init(SDL_INIT_EVERYTHING);
+
+          std::cout << "\033[2J\033[1;1H" << std::endl;
+  	std::cout << "Presione X para iniciar" << std::endl;
+ 
+  //Se genera la ventana de juego
+  SDL_GL_SetAttribute( SDL_GL_RED_SIZE, 8 );
+  SDL_GL_SetAttribute( SDL_GL_GREEN_SIZE, 8);
+  SDL_GL_SetAttribute( SDL_GL_BLUE_SIZE, 8 );
+  SDL_GL_SetAttribute( SDL_GL_ALPHA_SIZE, 8);
+  SDL_GL_SetAttribute( SDL_GL_BUFFER_SIZE, 32);
+  SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 16 );
+  SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER, 1 );
+
+  //audio constante
+  //Mix_Chunk *boom = NULL;
+
+  Mix_Chunk *sonido;
+  Mix_Chunk *bounce;
+  Mix_Music *ACDC;
+  Mix_OpenAudio ( MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 1, 4096 );
+  sonido = Mix_LoadWAV( "high.wav" );
+  bounce = Mix_LoadWAV( "bounce.wav");
+  ACDC = Mix_LoadMUS( "ACDC.mp3" );
+  Mix_PlayMusic( ACDC, -1);
+   
+  //Titulo de la Ventana
+  SDL_WM_SetCaption( "Micronoid-II semestre 2016", NULL );
+ 
+  //Dimenciones de la ventana
+  SDL_SetVideoMode(860,600,32, SDL_OPENGL );
+ 
+  //Color del fondo de la pantalla
+  glClearColor(1,1,1,1); // 
+ 
+  //Dimensiones de la ventana
+  glViewport(0,0,860,600);
+ 
+  //Shader model - Use this
+  glShadeModel(GL_SMOOTH);
+ 
+  //2D rendering
+  glMatrixMode(GL_PROJECTION);
+ 
+  //"Save" it
+  glLoadIdentity();
+ 
+  //Disable depth checking
+  glDisable(GL_DEPTH_TEST);
+ 
+  //Handles the main loop
+  bool isRunning = true;
+  bool EsperaX = false;
+ 
+  //For handling with event
+  SDL_Event event;
+  SDL_Event presionax;
+
+ 
+  float myX = 400; //starting x position of rectangle
+  float myY = 520; //starting y position of rectangle
+  float width = 80; //width of the rectangle
+  float height = 20; //height of the rectangle
+ 
+  bool left = false,right = false; //we save in which state the button is  
+ 
+  //Variables para la pelota
+  float ballX = myX+40; //x position
+  float ballY = 500; //y position
+  float ballWH = 13; //width and height of the ball
+ 
+  float vellX = 0; //x speed
+  float vellY = 0; //y speed
+ 
+  //NUMERO DE BLOQUES EN TOTAL
+  const static int BRICKS = 65;  
+ 
+  Brick bricks[BRICKS];  
+ 
+  for ( int n = 0, x = 4, y = 15; n < BRICKS; n++, x+=66 ) //A for loop that goes throught the array so we can set the positions
+    {
+      if ( x > 820 ) //If x is near the right edge of the screen
+        {
+          x = 4; //We start going from the left again
+          y += 25; //And move a down a little
+        }
+      bricks[n].x = x; //Set currents bricks x position
+      bricks[n].y = y; //Y position
+      bricks[n].width = 60; //Width
+      bricks[n].height = 20; //Height
+      bricks[n].alive = true; //Set alive to true (not broken)
+    }
+
+
+  const static int VIDAS = 3; //Define que hay 3 vidas al inicio
+ 
+  Vidas vidas[VIDAS];  
+ 
+  for ( int n = 0, x = 5, y = 570; n < VIDAS; n++, x+=40 ) //A for loop that goes throught the array so we can set the positions
+    {
+      if ( x > 200 ) //If x is near the right edge of the screen
+        {
+          x = 5; //We start going from the left again
+          y += 0; //And move a down a little
+        }
+      vidas[n].x = x; //Set currents bricks x position
+      vidas[n].y = y; //Y position
+      vidas[n].width = 20; //Width
+      vidas[n].height = 20; //Height
+      vidas[n].alive = true; //Set alive to true (not broken)
+    }
+
+  const static int PISO = 860;  
+ 
+  Piso piso[PISO];  
+ 
+  for ( int n = 0, x = 0, y = 540; n < PISO; n++, x+=1 ) //A for loop that goes throught the array so we can set the positions
+    {
+      if ( x > 860 ) //If x is near the right edge of the screen
+        {
+          x = 0; //We start going from the left again
+          y += 0; //And move a down a little
+        }
+      piso[n].x = x; //Set currents bricks x position
+      piso[n].y = y; //Y position
+      piso[n].width = 10; //Width
+      piso[n].height = 5; //Height
+      piso[n].alive = true; //Set alive to true (not broken)
+    }
+
+  const static int TECHO = 860;  
+ 
+  Techo techo[TECHO];  
+ 
+  for ( int n = 0, x = 0, y = 1; n < TECHO; n++, x+=1 ) //A for loop that goes throught the array so we can set the positions
+    {
+      if ( x > 860 ) //If x is near the right edge of the screen
+        {
+          x = 0; //We start going from the left again
+          y += 0; //And move a down a little
+        }
+      techo[n].x = x; //Set currents bricks x position
+      techo[n].y = y; //Y position
+      techo[n].width = 10; //Width
+      techo[n].height = 5; //Height
+      techo[n].alive = true; //Set alive to true (not broken)
+    }
+  
+  int destruidos = 0;
+  int corazones = 3; 
+  int puntaje = 0; 
+
+   
+
+
+    wiringPiSetupGpio(); // Initialize wiringPi -- using Broadcom pin numbers
+
+    pinMode(butPin, INPUT);      // Set button as INPUT
+
+
+//Main game loop
+  while ( isRunning )
+    {
+											// Si  no se desea habilitar boton comentar de linea 295 a linea 322
+       if (digitalRead(butPin)) // Button is released if this returns 1
+        {
+          isRunning = true;
+        }
+        else // If digitalRead returns 0, button is pressed
+        {
+	  int corazones = 3; 
+          myX = 400; //starting x position of rectangle
+          myY = 520; //starting y position of rectangle
+          width = 80; //width of the rectangle
+          height = 20; //height of the rectangle
+         
+          left = false,right = false; //Set the buttons back to false  
+         
+          //The ball variables
+          ballX = 430; //x position
+          ballY = 500; //y position
+          ballWH = 13; //width and height of the ball
+         
+          vellX = 0; //x speed
+          vellY = 0; //y speed
+       
+
+          for ( int n = 0; n < BRICKS; n++ ) //A for loop that goes throught the array so we can set every bricks alive to true (not broken)
+            {
+              bricks[n].alive = true;
+            }
+        }      
+
+      //Botones que generan interrupciones
+      while ( SDL_PollEvent(&event) )
+        {
+          //Cerrar ventana de juego
+          if ( event.type == SDL_QUIT )
+            {
+              isRunning = false;
+            }
+ 
+          //Finalizar  programa sin haber completado juego
+          if ( event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_ESCAPE )
+            {
+		std::cout << "\033[2J\033[1;1H" << std::endl;
+		std::cout << "Juego finalizado" << std::endl;
+              isRunning = false;
+            }
+ 
+          if ( event.key.keysym.sym == SDLK_RETURN)
+            {
+	      std::cout << "\033[2J\033[1;1H" << std::endl;
+	      std::cout << "Integrantes:" << std::endl;
+              std::cout << "Julio Aguilar GutiÃ©rrez-200579627" << std::endl;
+	      std::cout << "CÃ©sar Rojas Salas-200921564" << std::endl;
+		std::cout << "Mauricio SalomÃ³n Aguilar-200900582" << std::endl;
+		std::cout << "Ricardo Valdez CalderÃ³n-201125257" << std::endl;
+                std::cout << nombre << std::endl;
+		std::cout << "Puntaje :" << puntaje << std::endl;
+
+		std::cout <<"Modelo: Placa de Ordenador Raspberry Pi 2 de Raspberry Pi Foundation" << std::endl;
+
+		std::cout <<"Familia: BCM2836" << std::endl;
+
+		std::cout <<"Tipo de Microprocesador: MPU" << std::endl;
+
+		std::cout <<"Nucleo del Dispositivo: ARM Cortex A7 " << std::endl;
+
+		std::cout <<"El porcentaje de utilizacion del microprocesador es 96%" << std::endl;
+
+		std::cout <<"Presione Enter para terminar " << std::endl;
+		std::cin.get();
+		//std::cout << "\033[2J\033[1;1H" << std::endl;
+
+	      SDL_Delay (1000);
+              SDL_Quit();
+	      return 0;
+	      isRunning = false;
+            }
+
+	   //Revision cuando se teclea y se suelta
+ 
+          if ( event.type == SDL_KEYDOWN ) //Check for presed down buttons
+            {
+              if ( event.key.keysym.sym == SDLK_z ) //Check left key
+                {
+                  left = true; //Set the boolean value for left key to true (it is pressed)
+                }
+ 
+              else if ( event.key.keysym.sym == SDLK_c ) //Check Right key
+                {
+                  right = true; //Set the boolean value for right key to true (it is pressed)
+                }
+               
+            }
+ 
+          else if ( event.type == SDL_KEYUP ) //Checking for released buttons
+            {
+              if ( event.key.keysym.sym == SDLK_z ) //Left key
+                {
+                  left = false; //Set the value to false (key is released)
+                }
+             
+              else if ( event.key.keysym.sym == SDLK_c ) //Right key
+                {
+                  right = false; //Key is released
+                }
+            }
+//Generar el movimiento de la pelota
+         if ( event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_x )
+            {
+             std::cout << "\033[2J\033[1;1H" << std::endl;
+  	     vellX = 20; //y speed
+             vellY = -20; //y speed
+            
+                   
+            }
+ 
+          //logic that should happen for a certain event
+        }
+ 
+      //LOGIC
+      if ( left == true ) //If left key is pressed
+        {
+          myX -= 18; //Move left
+          
+        }
+ 
+      if ( right == true ) //If right key is pressed
+        {
+          myX += 18; //Move right
+        }
+ 
+      if ( myX < 0 ) //If the left border of the pad is over the left part of the screen
+        {
+          myX = 0; //Put the pad back so it isn't over the border
+        }
+ 
+      if ( myX+width > 860 ) //If the pad is over the right border of the screen
+        {
+          myX = 860-width; //Move it back so it only touches the right border
+        }
+ 
+      //Logica de la Bola
+      ballX += vellX; //Move the ball on x axis first
+ 
+      for ( int n = 0; n < BRICKS; n++ ) //Go throught the array of bricks
+        {
+          if ( bricks[n].alive == true ) //If the bricks is alive
+            {
+              if ( checkCollision(ballX,ballY,ballWH,ballWH,bricks[n].x,bricks[n].y,bricks[n].width, bricks[n].height) == true ) //Check for collision with the ball
+                {
+  		  Mix_PlayChannel(-1,sonido,0);
+                  vellX = -vellX; //Change x velocity of the ball
+                  bricks[n].alive = false; //Set the alive variable to false (brick is broken)
+		  destruidos +=1;
+		  puntaje = puntaje + 10;
+		  break; //Stop checking for collision on x axis
+                }
+            }
+        }
+ 
+      ballY += vellY; //move the ball on y axis second
+ 
+      for ( int n = 0; n < BRICKS; n++ ) //Go throught the array of bricks
+        {
+          if ( bricks[n].alive == true ) //If the brick is alive
+            {
+              if ( checkCollision(ballX,ballY,ballWH,ballWH,bricks[n].x,bricks[n].y,bricks[n].width, bricks[n].height) == true ) //Check for collision
+                {
+  		  Mix_PlayChannel(-1,sonido,0);
+                  vellY = -vellY; //Change y velocity of the ball
+                  bricks[n].alive = false; //Set alive varible to false
+		  destruidos +=1;
+		  puntaje = puntaje + 10;
+                  break; //Stop checking for collision on y axis
+                }
+            }
+        }
+ 
+      if ( ballX < 0 ) //Check if the ball hit the left edge of screen
+        {
+          vellX = -vellX; //negate the x velocity
+        }
+ 
+      else if ( ballX+ballWH>860 )
+        {
+          vellX = -vellX;
+        }
+ 
+      if ( ballY < 0 )
+        {
+          vellY = -vellY;
+        }
+ 
+	if (destruidos == BRICKS) {
+	        std::cout << "Â¡Felicidades " << nombre << "!  " << "Juego terminado" << std::endl;
+		std::cout << "Puntaje :" << "650" << std::endl;
+
+		std::cout << "" << std::endl;
+               std::cout << "Integrantes:" << std::endl;
+               std::cout << "Julio Aguilar GutiÃ©rrez-200579627" << std::endl;
+		std::cout << "CÃ©sar Rojas Salas-200921564" << std::endl;
+		std::cout << "Mauricio SalomÃ³n Aguilar-200900582" << std::endl;
+		std::cout << "Ricardo Valdez CalderÃ³n-201125257" << std::endl;
+
+		 
+ 
+		std::cout << "" << std::endl;
+		std::cout <<"Modelo: Placa de Ordenador Raspberry Pi 2 de Raspberry Pi Foundation" << std::endl;
+
+		std::cout <<"Familia: BCM2836" << std::endl;
+
+		std::cout <<"Tipo de Microprocesador: MPU" << std::endl;
+
+		std::cout <<"Nucleo del Dispositivo: ARM Cortex A7 " << std::endl;
+
+		std::cout <<"El porcentaje de utilizacion del microprocesador es 96%" << std::endl;
+		std::cin.get();
+	 
+		 
+	      SDL_Delay (12000);
+              SDL_Quit();
+		std::cout << "\033[2J\033[1;1H" << std::endl;
+		std::cout <<"Presione Enter para salir" << std::endl;
+		std::cin.get();
+		std::cout << "\033[2J\033[1;1H" << std::endl;
+ 	      
+		return 0;
+	      isRunning = false;	
+            }
+      else if ( ballY+ballWH > 540 ) //if the ball hit the bottom edge of screen
+        {
+         
+
+
+          std::cout << "\033[2J\033[1;1H" << std::endl;
+          std::cout << "Intento fallido - Pierde una vida" << std::endl;
+          SDL_Delay(3000); //Delay
+          std::cout << "\033[2J\033[1;1H" << std::endl;
+  	  std::cout << "Presione X para iniciar" << std::endl;
+ 
+          myX = 400; //starting x position of rectangle
+          myY = 520; //starting y position of rectangle
+          width = 80; //width of the rectangle
+          height = 20; //height of the rectangle
+         
+          left = false,right = false; //Set the buttons back to false  
+         
+          //The ball variables
+          ballX = 430; //x position
+          ballY = 500; //y position
+          ballWH = 13; //width and height of the ball
+         
+          vellX = 0; //x speed
+          vellY = 0; //y speed
+
+         
+
+          for ( int n = 0; n < VIDAS; n++ ) //Go throught the array of bricks
+          {
+            if ( vidas[n].alive == true ) //If the bricks is alive
+              {
+                //Mix_PlayChannel(-1,sonido,0);
+                vidas[n].alive = false; //Set the alive variable to false (brick is broken)
+                break; //Stop checking for collision on x axis
+               }
+            
+               corazones -= 1;  
+	  
+        }
+
+           SDL_Delay(3000);//pausa cuando el jugador pierde una vida
+                       //se tiene que imprimir la linea donde diga que el jugador perdio una vida
+ 
+          
+ }
+      if ( checkCollision(ballX,ballY,ballWH,ballWH,myX,myY,width,height) == true ) //if there is a collision between the ball and pad
+        {
+          Mix_PlayChannel(-1,bounce,0);
+          vellY = -vellY; //change the ball's y velocity/speed
+
+	  if ( ( ballX + ballWH/2 ) < ( (myX+height) + 20) )
+            {
+              vellX = -8; 
+            }
+ 	  else if ( (myX+height) + 20  < ( ballX + ballWH/2 ) < (myX+height) + 40 )
+            {	
+              vellX = 4; 
+            } 
+          else if ( ( (myX+height) +40 ) < ( ballX + ballWH/2 ) < ( (myX+height) + 60 ) )
+            {
+              vellX = -4; 
+            }
+ 	  else if ( ( (myX+height) +60) < ( ballX + ballWH/2 ) < ( (myX+height) + 80) )
+            {
+              vellX = 8; 
+            }  
+        }
+
+	if (corazones == 0) {
+              SDL_Quit();
+	       
+
+	        std::cout << "\033[2J\033[1;1H" << std::endl;
+	        std::cout << "Ha perdido todas sus vidas" << std::endl;
+	        std::cout << "Juego Finalizado - Mejor suerte la proxima vez." << std::endl;
+  		std::cout << "" << std::endl;
+                std::cout << nombre << std::endl;
+		std::cout << "Puntaje :" << puntaje << std::endl;
+ 		std::cout << "" << std::endl;
+                std::cout << "Integrantes:" << std::endl;
+                std::cout << "Julio Aguilar GutiÃ©rrez-200579627" << std::endl;
+		std::cout << "CÃ©sar Rojas Salas-200921564" << std::endl;
+		std::cout << "Mauricio SalomÃ³n Aguilar-200900582" << std::endl;
+		std::cout << "Ricardo Valdez CalderÃ³n-201125257" << std::endl;
+		
+		std::cout << "" << std::endl;
+		std::cout <<"Modelo: Placa de Ordenador Raspberry Pi 2 de Raspberry Pi Foundation" << std::endl;
+		std::cout <<"Familia: BCM2836" << std::endl;
+		std::cout <<"Tipo de Microprocesador: MPU" << std::endl;
+  		std::cout <<"Nucleo del Dispositivo: ARM Cortex A7 " << std::endl;
+		std::cout <<"El porcentaje de utilizacion del microprocesador es del 96%  " << std::endl;
+	 
+	      
+	      SDL_Delay (12000);
+              SDL_Quit();
+		std::cout << "\033[2J\033[1;1H" << std::endl;
+		std::cout <<"Presione Enter para salir" << std::endl;
+		std::cin.get();
+		std::cout << "\033[2J\033[1;1H" << std::endl;
+		return 0;
+	      isRunning = false; 
+	}
+ 
+      //RENDERING to the screen
+      glClear(GL_COLOR_BUFFER_BIT);
+ 
+      glPushMatrix(); //Start rendering phase
+ 
+      glOrtho(0,860,600,0,-1,1); //Set the matrix
+
+      glColor4ub(0,255,255,255); //Black color
+
+      //Comandos para hacer texture binding
+      glEnable(GL_TEXTURE_2D);
+
+
+      
+
+
+      glBegin(GL_QUADS); //Start drawing the pad
+ 
+      glVertex2f(myX,myY); //Upper-left corner
+      glVertex2f(myX+width,myY); //Upper-right corner
+      glVertex2f(myX+width,myY+height); //Down-right corner
+      glVertex2f(myX,myY+height); //Down-left corner
+ 
+      glEnd(); //End drawing
+ 
+      glColor4ub(255,0,0,255); //Red color
+ 
+      glBegin(GL_QUADS); //Render of the ball, same method as for the pad
+      glVertex2f(ballX,ballY);
+      glVertex2f(ballX+ballWH,ballY);
+      glVertex2f(ballX+ballWH,ballY+ballWH);
+      glVertex2f(ballX,ballY+ballWH);
+      glEnd();
+ 
+      glColor4ub(115,166,86,255); //Julio color
+
+      glBegin(GL_QUADS); //Render the vidas
+ 
+      for ( int n = 0; n < VIDAS; n++ ) //We go throught all the elements (bricks)
+        {
+          if ( vidas[n].alive == true ) //We only draw the brick if it's alive
+            {
+               
+              glVertex2f(vidas[n].x,vidas[n].y);
+              glVertex2f(vidas[n].x+vidas[n].width,vidas[n].y);
+              glVertex2f(vidas[n].x+vidas[n].width,vidas[n].y+vidas[n].height);
+              glVertex2f(vidas[n].x,vidas[n].y+vidas[n].height);
+            }
+        }
+ 
+      glEnd(); //End drawing
+
+      glColor4ub(50,110,200,255); //Blue color
+ 
+      glBegin(GL_QUADS); //Render the bricks
+ 
+      for ( int n = 0; n < BRICKS; n++ ) //We go throught all the elements (bricks)
+        {
+          if ( bricks[n].alive == true ) //We only draw the brick if it's alive
+            {
+              if ( n%2 == 0 ) glColor4ub(122,135,99,255); //Every 2nd bricks has a different color
+              else glColor4ub(41,42,43,255); //Else it has normal blue color
+             
+              //The 4 edges of the current brick
+              glVertex2f(bricks[n].x,bricks[n].y);
+              glVertex2f(bricks[n].x+bricks[n].width,bricks[n].y);
+              glVertex2f(bricks[n].x+bricks[n].width,bricks[n].y+bricks[n].height);
+              glVertex2f(bricks[n].x,bricks[n].y+bricks[n].height);
+            }
+        }
+ 
+      glEnd(); //End drawing
+
+      glColor4ub(122,122,13,255); //Ricardo color
+ 
+      glBegin(GL_QUADS); //Render the piso
+ 
+      for ( int n = 0; n < PISO; n++ ) //We go throught all the elements (bricks)
+        {
+          if ( piso[n].alive == true ) //We only draw the brick if it's alive
+            {
+              
+              glVertex2f(piso[n].x,piso[n].y);
+              glVertex2f(piso[n].x+piso[n].width,piso[n].y);
+              glVertex2f(piso[n].x+piso[n].width,piso[n].y+piso[n].height);
+              glVertex2f(piso[n].x,piso[n].y+piso[n].height);
+            }
+        }
+ 
+      glEnd(); //End drawing
+
+      glColor4ub(122,122,13,255); //Ricardo color
+ 
+      glBegin(GL_QUADS); //Render the bricks
+ 
+      for ( int n = 0; n < TECHO; n++ ) //We go throught all the elements (bricks)
+        {
+          if ( techo[n].alive == true ) //We only draw the brick if it's alive
+            {
+               
+              glVertex2f(techo[n].x,techo[n].y);
+              glVertex2f(techo[n].x+techo[n].width,techo[n].y);
+              glVertex2f(techo[n].x+techo[n].width,techo[n].y+techo[n].height);
+              glVertex2f(techo[n].x,techo[n].y+techo[n].height);
+            }
+        }
+ 
+      glEnd(); //End drawing
+
+
+ 
+      glPopMatrix(); //End rendering phase
+ 
+      SDL_GL_SwapBuffers();
+ 
+      SDL_Delay(1); //Delay / pause
+    }
+  Mix_FreeChunk(sonido);
+  Mix_CloseAudio();  
+ 
+  SDL_Quit();
+ 
+  return 0;
+}
